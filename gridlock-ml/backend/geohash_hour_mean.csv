@@ -1,4 +1,4 @@
-geohash,hour_temp,geohash_hour_demand_mean
+geohash,hour_temp,demand
 0,1,0.0053969651097159
 0,2,0.019452390987216198
 0,3,0.0264223751676618
