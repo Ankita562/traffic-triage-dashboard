@@ -69,15 +69,15 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant Sensor as 🚦 Traffic Sensor
-    participant ML as 🤖 LightGBM Model
-    participant API as 📡 Incident API
-    participant UI as 🖥️ Triage Dashboard
+    participant ML as 🤖 HistGradientBoosting
+    participant API as 📡 Flask REST API
+    participant UI as 🖥️ React Dashboard
     participant Dispatcher as 👮 Dispatcher
 
     Sensor->>ML: Raw flow data (location, time, volume)
-    ML->>ML: Geohash encoding + Cyclic time features
+    ML->>ML: Geohash + Cyclic time feature engineering
     ML->>API: Predicted demand score → Priority tag
-    API->>UI: Incident object {cause, coords, priority}
+    API->>UI: Live JSON fetch {cause, coords, priority}
     UI->>Dispatcher: Card shown in Live Feed
     Dispatcher->>UI: Clicks card → Triage panel opens
     Dispatcher->>UI: Confirms dispatch or escalates
@@ -109,8 +109,8 @@ graph LR
     A[React 18] --> B[Tailwind CSS v3]
     A --> C[Leaflet + React-Leaflet]
     A --> D[Lucide React Icons]
-    E[TriageEngine.js] --> F[Rule-Based\nRecommendation Engine]
-    G[LightGBM Round 1] --> H[Priority Score\nFed into Mock Data]
+    E[TriageEngine.js] --> F[Rule-Based Action Recommendations]
+    G[Python Flask Backend] --> H[HistGradientBoosting API\nLive Priority Scoring]
 ```
 
 | Layer | Technology |
