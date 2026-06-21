@@ -1,0 +1,108 @@
+================================================================================
+APPROACH & METHODOLOGY — Traffic Demand Prediction
+Flipkart Gridlock Hackathon 2.0
+================================================================================
+
+PROBLEM STATEMENT
+-----------------
+Predict the normalized traffic demand (0–1) at geohash-encoded locations across
+different days and time periods, using road characteristics and environmental
+features.
+
+Evaluation metric: score = max(0, 100 * R²(actual, predicted))
+
+--------------------------------------------------------------------------------
+1. EXPLORATORY DATA ANALYSIS
+--------------------------------------------------------------------------------
+- Train set: 77,299 rows × 11 columns (including target: demand)
+- Test set:  41,778 rows × 10 columns
+- Target variable (demand) is a continuous float in [0, 1]
+- Missing values found in: RoadType (~0.78%), Weather (~1.03%),
+  Temperature (~3.23%)
+- Geohash encodes geographic location at ~1.2 km × 0.6 km precision
+- Timestamp stored as "H:M" string (e.g., "7:30"), not a datetime object
+
+--------------------------------------------------------------------------------
+2. DATA PREPROCESSING
+--------------------------------------------------------------------------------
+
+Timestamp Parsing:
+  - Split "H:M" string into integer 'hour' and 'minute' columns.
+  - Applied cyclic (sinusoidal) encoding to both features:
+      hour_sin   = sin(2π × hour / 24)
+      hour_cos   = cos(2π × hour / 24)
+      minute_sin = sin(2π × minute / 60)
+      minute_cos = cos(2π × minute / 60)
+  - Cyclic encoding ensures the model correctly understands that
+    hour 23 is adjacent to hour 0 (avoids artificial discontinuity).
+
+Missing Value Imputation:
+  - RoadType, Weather: filled with mode computed from training set only.
+  - Temperature: filled with median computed from training set only.
+  - All imputation statistics derived from train set and applied to test set
+    to prevent data leakage.
+
+--------------------------------------------------------------------------------
+3. FEATURE ENGINEERING
+--------------------------------------------------------------------------------
+
+Categorical Encoding:
+  - Applied LabelEncoder to: geohash, RoadType, LargeVehicles, Landmarks, Weather
+  - Encoder fitted on training data only; unseen test categories assigned a
+    reserved out-of-vocabulary ID to prevent runtime errors.
+
+Aggregation Features (Spatial & Temporal Signals):
+  - geohash_demand_mean: mean demand per geohash location, computed from training set.
+  - geohash_hour_demand_mean: mean demand for each (geohash, hour) combination. This captures both spatial and temporal traffic patterns simultaneously.
+  - day_hour_demand_mean: mean demand for specific day and hour combinations to capture specific weekday-hour behaviors.
+  - roadtype_demand_mean: mean demand per road type to establish infrastructure-capacity baselines.
+  - Unseen test categories filled with 0 (global fallback).
+
+Final Feature Set (16 features):
+  geohash, day, RoadType, NumberofLanes, LargeVehicles, Landmarks,
+  Temperature, Weather, hour_sin, hour_cos, minute_sin, minute_cos,
+  geohash_demand_mean, geohash_hour_demand_mean, day_hour_demand_mean, 
+  roadtype_demand_mean
+
+--------------------------------------------------------------------------------
+4. MODELING
+--------------------------------------------------------------------------------
+
+Algorithm: HistGradientBoostingRegressor (Scikit-Learn)
+
+Rationale:
+  - Histogram-based gradient boosting handles large datasets efficiently.
+  - Natively supports NaN values in features.
+  - Strong performance on heterogeneous tabular data without extensive tuning.
+  - Early stopping prevents overfitting on the 77k training sample.
+
+Hyperparameters:
+  - max_iter            = 1000
+  - learning_rate       = 0.05   (conservative; improves generalization)
+  - early_stopping      = True
+  - validation_fraction = 0.1
+  - n_iter_no_change    = 10
+  - random_state        = 42
+
+--------------------------------------------------------------------------------
+5. VALIDATION
+--------------------------------------------------------------------------------
+
+Strategy: 5-Fold Cross-Validation (KFold, shuffle=True, random_state=42)
+Metric:   R² score (matches competition evaluation metric)
+
+  CV R² scores reported across 5 folds before final submission.
+  Final model retrained on 100% of training data for prediction.
+
+--------------------------------------------------------------------------------
+6. TOOLS & LIBRARIES
+--------------------------------------------------------------------------------
+
+  Language : Python 3
+  Libraries:
+    - pandas    — data loading, manipulation, aggregation
+    - numpy     — cyclic feature computation
+    - scikit-learn — LabelEncoder, HistGradientBoostingRegressor,
+                     KFold, cross_val_score
+
+================================================================================
