@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, MapPin, ShieldAlert, Truck, ChevronRight, Bell, CheckCircle, Radio } from 'lucide-react';
+import { AlertTriangle, MapPin, ShieldAlert, Truck, ChevronRight, Bell, CheckCircle, Radio, ChevronUp, ChevronDown } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -52,50 +52,67 @@ function App() {
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedIncident, setSelectedIncident]   = useState(null);
-  const [escalationLevel, setEscalationLevel]     = useState(0);
+  const [escalationLevels, setEscalationLevels] = useState({});
+  const escalationLevel = selectedIncident ? (escalationLevels[selectedIncident.id] || 0) : 0;
   const [dispatchedIncidents, setDispatchedIncidents] = useState(new Set());
   const [dispatchedAtLevel, setDispatchedAtLevel] = useState({});   // { incidentId: levelDispatchedAt }
-
+  const [auditLog, setAuditLog] = useState([]);
+  const [isAuditLogOpen, setIsAuditLogOpen] = useState(true);
+  // Helper to easily add new entries to the top of the log
+  const logAction = (incidentName, action, colorClass) => {
+    const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: "numeric", minute: "numeric", second: "numeric" });
+    setAuditLog(prev => [{ id: Date.now(), time, incidentName, action, colorClass }, ...prev]);
+  };
   const MAP_CENTER = [12.9716, 77.5946];
 
-  // ── CONNECT TO MACHINE LEARNING MIDDLEWARE LAYER ──
+  // ── CONNECT TO LIVE TOMTOM + ML MIDDLEWARE ──
   useEffect(() => {
-    const processLiveData = async () => {
+    const fetchLiveFeed = async () => {
       try {
-        setLoading(true);
-        const enrichedData = await Promise.all(
-          MOCK_INCIDENTS.map(async (incident) => {
-            const mlData = await enrichWithMLPriority(incident);
-            // Inject lifecycle status into the incoming data
-            return { ...mlData, status: 'active' }; 
-          })
-        );
-        setIncidents(enrichedData);
+        const response = await fetch('http://127.0.0.1:5000/api/live-triage');
+        const liveData = await response.json();
+        
+        setIncidents(prevIncidents => {
+          // Keep track of incidents we've already marked as "resolved" 
+          // so they don't pop back up as "active" on the next 30-second ping!
+          const resolvedIds = prevIncidents.filter(i => i.status === 'resolved').map(i => i.id);
+          
+          return liveData.map(inc => ({
+            ...inc,
+            status: resolvedIds.includes(inc.id) ? 'resolved' : 'active'
+          }));
+        });
       } catch (error) {
-        console.error("Failed to compile ML live state streams:", error);
+        console.error("Live feed offline:", error);
       } finally {
         setLoading(false);
       }
     };
 
-    processLiveData();
+    // Fetch immediately on load, then auto-ping every 30 seconds
+    fetchLiveFeed();
+    const interval = setInterval(fetchLiveFeed, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleIncidentSelect = (incident) => {
     setSelectedIncident(incident);
-    setEscalationLevel(0);
+    // setEscalationLevel(0);
   };
 
   const handleEscalation = () => {
-    if (escalationLevel < 2) {
-      setEscalationLevel(prev => prev + 1);
-      if (selectedIncident) {
-        setDispatchedAtLevel(prev => {
-          const next = { ...prev };
-          delete next[selectedIncident.id];
-          return next;
-        });
-      }
+    if (selectedIncident && escalationLevel < 2) {
+      setEscalationLevels(prev => ({
+        ...prev,
+        [selectedIncident.id]: escalationLevel + 1
+      }));
+      setDispatchedAtLevel(prev => {
+        const next = { ...prev };
+        delete next[selectedIncident.id];
+        return next;
+      });
+    const newLevelName = ESCALATION_CHAIN[escalationLevel + 1].label;
+      logAction(selectedIncident.event_cause.replace('_', ' '), `Escalated to ${newLevelName}`, 'text-orange-400');
     }
   };
 
@@ -103,6 +120,7 @@ function App() {
     if (!selectedIncident) return;
     setDispatchedIncidents(prev => new Set([...prev, selectedIncident.id]));
     setDispatchedAtLevel(prev => ({ ...prev, [selectedIncident.id]: escalationLevel }));
+    logAction(selectedIncident.event_cause.replace('_', ' '), `Dispatched to ${getDispatchTarget()}`, 'text-blue-400');
   };
 
   const handleResolve = () => {
@@ -110,6 +128,7 @@ function App() {
     setIncidents(prev => prev.map(inc => 
       inc.id === selectedIncident.id ? { ...inc, status: 'resolved' } : inc
     ));
+    logAction(selectedIncident.event_cause.replace('_', ' '), 'Incident Marked Resolved', 'text-emerald-400');
     setSelectedIncident(null); // Deselect to clear the Triage Panel
   };
 
@@ -217,9 +236,48 @@ function App() {
                 <span className="text-gray-400">Confidence: {incident.confidence}</span>
               </div>
             </div>
+            
           ))}
         </div>
+        {/* ── AUDIT LOG TERMINAL (Pinned to the bottom of the sidebar) ── */}
+        {/* ── COLLAPSIBLE AUDIT LOG TERMINAL ── */}
+        <div className={`${isAuditLogOpen ? 'h-48' : 'h-auto'} bg-slate-900 border-t-4 border-slate-700 flex flex-col shadow-[inset_0_4px_6px_-1px_rgba(0,0,0,0.3)] transition-all duration-300`}>
+          
+          {/* Clickable Header */}
+          <div 
+            onClick={() => setIsAuditLogOpen(!isAuditLogOpen)}
+            className="px-4 py-2 bg-slate-800 border-b border-slate-700 flex justify-between items-center text-xs font-bold text-slate-300 tracking-wider cursor-pointer hover:bg-slate-700 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              {isAuditLogOpen ? <ChevronDown size={16} className="text-slate-400" /> : <ChevronUp size={16} className="text-slate-400" />}
+              <span>LIVE AUDIT LOG</span>
+            </div>
+            <span className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> REC
+            </span>
+          </div>
+
+          {/* Hidden/Shown Content */}
+          {isAuditLogOpen && (
+            <div className="flex-1 overflow-y-auto p-3 font-mono text-[10px] space-y-2">
+              {auditLog.length === 0 ? (
+                <p className="text-slate-500 italic">Waiting for dispatcher actions...</p>
+              ) : (
+                auditLog.map(entry => (
+                  <div key={entry.id} className="flex items-start gap-2 border-l-2 border-slate-700 pl-2">
+                    <span className="text-slate-500 whitespace-nowrap">[{entry.time}]</span>
+                    <div>
+                      <span className="text-slate-300 capitalize font-bold">{entry.incidentName}: </span>
+                      <span className={entry.colorClass}>{entry.action}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
       </div>
+      
 
       {/* ── RIGHT PANEL ── */}
       <div className="w-2/3 flex flex-col relative bg-slate-50">
