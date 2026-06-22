@@ -18,6 +18,24 @@ const ESCALATION_CHAIN = [
   { label: 'Central Control', color: 'bg-red-600' },
 ];
 
+// ── DYNAMIC MAP PIN COLORS ──
+const getMarkerIcon = (cause) => {
+  let color = 'blue'; // Default
+  const causeLower = (cause || '').toLowerCase();
+  
+  if (causeLower.includes('accident')) color = 'red';
+  else if (causeLower.includes('breakdown')) color = 'orange';
+
+  return new L.Icon({
+    iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
+    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34],
+    shadowSize: [41, 41]
+  });
+};
+
 // Smoothly flies the map to whichever incident is selected
 function MapController({ incident }) {
   const map = useMap();
@@ -45,9 +63,12 @@ function App() {
     const processLiveData = async () => {
       try {
         setLoading(true);
-        // Map through your raw local incident configurations, sending each to the Python pipeline
         const enrichedData = await Promise.all(
-          MOCK_INCIDENTS.map(async (incident) => await enrichWithMLPriority(incident))
+          MOCK_INCIDENTS.map(async (incident) => {
+            const mlData = await enrichWithMLPriority(incident);
+            // Inject lifecycle status into the incoming data
+            return { ...mlData, status: 'active' }; 
+          })
         );
         setIncidents(enrichedData);
       } catch (error) {
@@ -84,6 +105,14 @@ function App() {
     setDispatchedAtLevel(prev => ({ ...prev, [selectedIncident.id]: escalationLevel }));
   };
 
+  const handleResolve = () => {
+    if (!selectedIncident) return;
+    setIncidents(prev => prev.map(inc => 
+      inc.id === selectedIncident.id ? { ...inc, status: 'resolved' } : inc
+    ));
+    setSelectedIncident(null); // Deselect to clear the Triage Panel
+  };
+
   const isCurrentDispatched =
     selectedIncident !== null &&
     dispatchedAtLevel[selectedIncident?.id] === escalationLevel;
@@ -94,6 +123,11 @@ function App() {
     if (escalationLevel === 1) return 'Hoysala Mobile Unit';
     return 'Central Control Room — Geo-Alert Active';
   };
+
+  // ── LIVE STATS CALCULATION ──
+  const activeCount = incidents.filter(i => i.status === 'active' && !dispatchedIncidents.has(i.id)).length;
+  const dispatchedCount = incidents.filter(i => i.status === 'active' && dispatchedIncidents.has(i.id)).length;
+  const resolvedCount = incidents.filter(i => i.status === 'resolved').length;
 
   // ── FULL-SCREEN SCREEN LOADING BACKDROP ──
   if (loading) {
@@ -114,9 +148,23 @@ function App() {
 
       {/* ── LEFT PANEL ── */}
       <div className="w-1/3 bg-white border-r border-gray-200 flex flex-col z-10 shadow-lg">
-        <div className="p-4 bg-slate-800 text-white flex items-center gap-2">
-          <ShieldAlert className="text-red-400" />
-          <h1 className="text-xl font-bold tracking-wide">ASTRAM TRIAGE</h1>
+        <div className="p-4 bg-slate-800 text-white">
+          <div className="flex items-center gap-2 mb-4">
+            <ShieldAlert className="text-red-400" />
+            <h1 className="text-xl font-bold tracking-wide">ASTRAM TRIAGE</h1>
+          </div>
+          
+          {/* JUDGES VISUAL METRIC: Live Operations Stats Bar */}
+          <div className="flex justify-between text-xs font-semibold bg-slate-900 px-4 py-2.5 rounded-md border border-slate-700 shadow-inner">
+            <span className="text-red-400 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse"></span>
+              {activeCount} Active
+            </span>
+            <span className="text-slate-500">|</span>
+            <span className="text-blue-400">{dispatchedCount} Dispatched</span>
+            <span className="text-slate-500">|</span>
+            <span className="text-emerald-400">{resolvedCount} Resolved</span>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -124,27 +172,32 @@ function App() {
             Live Incident Feed
           </h2>
 
-          {/* Render real-time ML state array instead of old static lists */}
           {incidents.map((incident) => (
             <div
               key={incident.id}
               onClick={() => handleIncidentSelect(incident)}
-              className={`p-4 rounded-lg border cursor-pointer transition-all ${
-                selectedIncident?.id === incident.id
+              className={`p-4 rounded-lg border cursor-pointer transition-all duration-300 ${
+                incident.status === 'resolved'
+                  ? 'bg-slate-50 opacity-50 grayscale border-slate-200'
+                  : selectedIncident?.id === incident.id
                   ? 'border-blue-500 bg-blue-50 shadow-sm'
                   : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
               }`}
             >
               <div className="flex justify-between items-start mb-2">
-                <span className="font-bold text-gray-800 capitalize">
+                <span className={`font-bold capitalize ${incident.status === 'resolved' ? 'line-through text-gray-400' : 'text-gray-800'}`}>
                   {incident.event_cause.replace('_', ' ')}
                 </span>
                 <div className="flex gap-1.5 flex-wrap justify-end items-center">
-                  {dispatchedIncidents.has(incident.id) && (
+                  {incident.status === 'resolved' ? (
+                    <span className="bg-gray-200 text-gray-600 text-xs font-bold px-2 py-0.5 rounded">
+                      Resolved
+                    </span>
+                  ) : dispatchedIncidents.has(incident.id) ? (
                     <span className="bg-green-100 text-green-700 text-xs font-bold px-2 py-0.5 rounded flex items-center gap-1">
                       <CheckCircle size={10} /> Sent
                     </span>
-                  )}
+                  ) : null}
                   <span className="bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded">
                     {incident.priority}
                   </span>
@@ -156,7 +209,6 @@ function App() {
                 <p className="truncate">{incident.address}</p>
               </div>
 
-              {/* JUDGES VISUAL METRIC BADGE: Highlights active background pipeline */}
               <div className="flex justify-between items-center mt-2 pt-2 border-t border-gray-100 text-[11px] font-mono">
                 <div className="flex items-center gap-1 bg-indigo-50 border border-indigo-100 text-indigo-600 px-2 py-0.5 rounded">
                   <span className="h-1.5 w-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
@@ -189,13 +241,9 @@ function App() {
           </div>
         )}
 
-        {/* Map Container linked to active array */}
+        {/* Map Container */}
         <div className="absolute inset-0 z-0">
-          <MapContainer
-            center={MAP_CENTER}
-            zoom={12}
-            style={{ height: '100%', width: '100%' }}
-          >
+          <MapContainer center={MAP_CENTER} zoom={12} style={{ height: '100%', width: '100%' }}>
             <TileLayer
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               attribution="&copy; OpenStreetMap contributors"
@@ -206,7 +254,9 @@ function App() {
               <Marker
                 key={incident.id}
                 position={[incident.latitude, incident.longitude]}
+                icon={getMarkerIcon(incident.event_cause)}
                 eventHandlers={{ click: () => handleIncidentSelect(incident) }}
+                opacity={incident.status === 'resolved' ? 0.5 : 1}
               >
                 <Popup>
                   <strong className="capitalize">
@@ -232,7 +282,7 @@ function App() {
         </div>
 
         {/* ── Triage Action Panel ── */}
-        {selectedIncident && (
+        {selectedIncident && selectedIncident.status !== 'resolved' && (
           <div className="absolute bottom-0 w-full z-10 bg-white border-t-2 border-gray-200 shadow-2xl p-5">
 
             {/* Header row */}
@@ -289,9 +339,18 @@ function App() {
 
               <div className="flex gap-2">
                 {isCurrentDispatched ? (
-                  <div className="px-4 py-2 bg-green-100 text-green-700 font-bold rounded-md flex items-center gap-2 text-sm">
-                    <CheckCircle size={15} /> Dispatch Confirmed
-                  </div>
+                  <>
+                    <div className="px-4 py-2 bg-green-100 text-green-700 font-bold rounded-md flex items-center gap-2 text-sm">
+                      <CheckCircle size={15} /> Dispatch Confirmed
+                    </div>
+                    {/* NEW RESOLVE BUTTON */}
+                    <button
+                      onClick={handleResolve}
+                      className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-md hover:bg-emerald-700 active:scale-95 transition text-sm shadow ml-2"
+                    >
+                      Mark Resolved
+                    </button>
+                  </>
                 ) : (
                   <button
                     onClick={handleConfirmDispatch}
