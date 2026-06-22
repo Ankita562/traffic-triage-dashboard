@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, MapPin, ShieldAlert, Truck, ChevronRight, Bell, CheckCircle, Radio, ChevronUp, ChevronDown } from 'lucide-react';
+import { AlertTriangle, MapPin, ShieldAlert, Truck, ChevronRight, Bell, CheckCircle, Radio, ChevronUp, ChevronDown, Search, BarChart2, Activity } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -58,6 +58,38 @@ function App() {
   const [dispatchedAtLevel, setDispatchedAtLevel] = useState({});   // { incidentId: levelDispatchedAt }
   const [auditLog, setAuditLog] = useState([]);
   const [isAuditLogOpen, setIsAuditLogOpen] = useState(true);
+
+  // ── NEW: SEARCH & ANALYTICS STATE ──
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showAnalytics, setShowAnalytics] = useState(false);
+
+  // ── DYNAMIC FILTERING ──
+  const filteredIncidents = incidents.filter(inc => {
+    const search = searchTerm.toLowerCase();
+    return (
+      (inc.address?.toLowerCase().includes(search)) ||
+      (inc.event_cause?.toLowerCase().includes(search)) ||
+      (inc.police_station?.toLowerCase().includes(search))
+    );
+  });
+
+  // ── ANALYTICS CALCULATIONS ──
+  const activeCount = incidents.filter(i => i.status === 'active' && !dispatchedIncidents.has(i.id)).length;
+  const dispatchedCount = incidents.filter(i => i.status === 'active' && dispatchedIncidents.has(i.id)).length;
+  const resolvedCount = incidents.filter(i => i.status === 'resolved').length;
+
+  const totalActive = incidents.filter(i => i.status === 'active').length || 1; // Prevent divide by zero
+  
+  const accidentsCount = incidents.filter(i => i.status === 'active' && i.event_cause.toLowerCase().includes('accident')).length;
+  const jamsCount = incidents.filter(i => i.status === 'active' && i.event_cause.toLowerCase().includes('jam')).length;
+  const breakdownsCount = incidents.filter(i => i.status === 'active' && i.event_cause.toLowerCase().includes('breakdown')).length;
+  const roadWorksCount = incidents.filter(i => i.status === 'active' && i.event_cause.toLowerCase().includes('road')).length;
+  const highPriCount = incidents.filter(i => i.status === 'active' && i.priority === 'High').length;
+  const medPriCount = incidents.filter(i => i.status === 'active' && i.priority === 'Medium').length;
+  const lowPriCount = incidents.filter(i => i.status === 'active' && i.priority === 'Low').length;
+
+  const clearanceRate = incidents.length ? Math.round((resolvedCount / incidents.length) * 100) : 0;
+    
   // Helper to easily add new entries to the top of the log
   const logAction = (incidentName, action, colorClass) => {
     const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: "numeric", minute: "numeric", second: "numeric" });
@@ -143,10 +175,6 @@ function App() {
     return 'Central Control Room — Geo-Alert Active';
   };
 
-  // ── LIVE STATS CALCULATION ──
-  const activeCount = incidents.filter(i => i.status === 'active' && !dispatchedIncidents.has(i.id)).length;
-  const dispatchedCount = incidents.filter(i => i.status === 'active' && dispatchedIncidents.has(i.id)).length;
-  const resolvedCount = incidents.filter(i => i.status === 'resolved').length;
 
   // ── FULL-SCREEN SCREEN LOADING BACKDROP ──
   if (loading) {
@@ -168,13 +196,23 @@ function App() {
       {/* ── LEFT PANEL ── */}
       <div className="w-1/3 bg-white border-r border-gray-200 flex flex-col z-10 shadow-lg">
         <div className="p-4 bg-slate-800 text-white">
-          <div className="flex items-center gap-2 mb-4">
-            <ShieldAlert className="text-red-400" />
-            <h1 className="text-xl font-bold tracking-wide">ASTRAM TRIAGE</h1>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="text-red-400" />
+              <h1 className="text-xl font-bold tracking-wide">ASTRAM TRIAGE</h1>
+            </div>
+            {/* Analytics Toggle Button */}
+            <button 
+              onClick={() => setShowAnalytics(!showAnalytics)}
+              className={`p-1.5 rounded-md transition-colors ${showAnalytics ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+              title="Toggle Area Analytics"
+            >
+              <BarChart2 size={18} />
+            </button>
           </div>
           
           {/* JUDGES VISUAL METRIC: Live Operations Stats Bar */}
-          <div className="flex justify-between text-xs font-semibold bg-slate-900 px-4 py-2.5 rounded-md border border-slate-700 shadow-inner">
+          <div className="flex justify-between text-xs font-semibold bg-slate-900 px-4 py-2.5 rounded-md border border-slate-700 shadow-inner mb-3">
             <span className="text-red-400 flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse"></span>
               {activeCount} Active
@@ -184,6 +222,18 @@ function App() {
             <span className="text-slate-500">|</span>
             <span className="text-emerald-400">{resolvedCount} Resolved</span>
           </div>
+
+          {/* ── LIVE SEARCH BAR ── */}
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search locations, stations, or incident types..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-600 rounded-md text-sm text-slate-200 placeholder-slate-400 focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition-all"
+            />
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -191,7 +241,8 @@ function App() {
             Live Incident Feed
           </h2>
 
-          {incidents.map((incident) => (
+          {/* CHANGED FROM incidents.map TO filteredIncidents.map */}
+          {filteredIncidents.map((incident) => (
             <div
               key={incident.id}
               onClick={() => handleIncidentSelect(incident)}
@@ -236,13 +287,11 @@ function App() {
                 <span className="text-gray-400">Confidence: {incident.confidence}</span>
               </div>
             </div>
-            
           ))}
         </div>
-        {/* ── AUDIT LOG TERMINAL (Pinned to the bottom of the sidebar) ── */}
+
         {/* ── COLLAPSIBLE AUDIT LOG TERMINAL ── */}
         <div className={`${isAuditLogOpen ? 'h-48' : 'h-auto'} bg-slate-900 border-t-4 border-slate-700 flex flex-col shadow-[inset_0_4px_6px_-1px_rgba(0,0,0,0.3)] transition-all duration-300`}>
-          
           {/* Clickable Header */}
           <div 
             onClick={() => setIsAuditLogOpen(!isAuditLogOpen)}
@@ -282,6 +331,86 @@ function App() {
       {/* ── RIGHT PANEL ── */}
       <div className="w-2/3 flex flex-col relative bg-slate-50">
 
+        {/* ── VISUAL FLOATING ANALYTICS PANEL ── */}
+        {showAnalytics && (
+          <div className="absolute top-4 right-4 z-[9999] w-80 bg-white/95 backdrop-blur-md shadow-2xl rounded-xl border border-gray-200 p-5 animate-in slide-in-from-top-4 duration-300">
+            <div className="flex items-center gap-2 border-b border-gray-100 pb-3 mb-4">
+              <Activity className="text-indigo-600" size={18} />
+              <h3 className="font-bold text-gray-800 tracking-wide">Live Dashboard Analytics</h3>
+            </div>
+            
+            {/* 1. Progress Bar: Clearance Rate */}
+            <div className="mb-5">
+              <div className="flex justify-between text-xs mb-1 font-bold">
+                <span className="text-gray-600 uppercase tracking-wider text-[10px]">Clearance Rate</span>
+                <span className="text-emerald-600">{clearanceRate}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2 shadow-inner">
+                <div className="bg-emerald-500 h-2 rounded-full transition-all duration-1000" style={{ width: `${clearanceRate}%` }}></div>
+              </div>
+            </div>
+
+            {/* 2. Horizontal Bar Chart: Incident Types */}
+            <div className="mb-5">
+              <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Active Incident Types</h4>
+              <div className="space-y-3">
+                
+                {/* Accidents Bar */}
+                <div>
+                  <div className="flex justify-between text-[11px] mb-1 font-medium text-gray-600">
+                    <span>Accidents ({accidentsCount})</span>
+                    <span>{Math.round((accidentsCount/totalActive)*100)}%</span>
+                  </div>
+                  <div className="w-full bg-red-100 rounded-full h-1.5"><div className="bg-red-500 h-1.5 rounded-full transition-all duration-1000" style={{ width: `${(accidentsCount/totalActive)*100}%` }}></div></div>
+                </div>
+                
+                {/* Jams Bar */}
+                <div>
+                  <div className="flex justify-between text-[11px] mb-1 font-medium text-gray-600">
+                    <span>Traffic Jams ({jamsCount})</span>
+                    <span>{Math.round((jamsCount/totalActive)*100)}%</span>
+                  </div>
+                  <div className="w-full bg-blue-100 rounded-full h-1.5"><div className="bg-blue-500 h-1.5 rounded-full transition-all duration-1000" style={{ width: `${(jamsCount/totalActive)*100}%` }}></div></div>
+                </div>
+                
+                {/* Breakdowns Bar */}
+                <div>
+                  <div className="flex justify-between text-[11px] mb-1 font-medium text-gray-600">
+                    <span>Breakdowns ({breakdownsCount})</span>
+                    <span>{Math.round((breakdownsCount/totalActive)*100)}%</span>
+                  </div>
+                  <div className="w-full bg-orange-100 rounded-full h-1.5"><div className="bg-orange-500 h-1.5 rounded-full transition-all duration-1000" style={{ width: `${(breakdownsCount/totalActive)*100}%` }}></div></div>
+                </div>
+
+                {/* Road Works Bar */}
+                <div>
+                  <div className="flex justify-between text-[11px] mb-1 font-medium text-gray-600">
+                    <span>Road Works ({roadWorksCount})</span>
+                    <span>{Math.round((roadWorksCount/totalActive)*100)}%</span>
+                  </div>
+                  <div className="w-full bg-purple-100 rounded-full h-1.5"><div className="bg-purple-500 h-1.5 rounded-full transition-all duration-1000" style={{ width: `${(roadWorksCount/totalActive)*100}%` }}></div></div>
+                </div>
+
+              </div>
+            </div>
+
+            {/* 3. Segmented Bar Chart: Priority Distribution */}
+            <div>
+              <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">AI Priority Distribution</h4>
+              <div className="flex h-3 w-full rounded-md overflow-hidden flex-row shadow-sm">
+                <div className="bg-red-500 transition-all duration-1000" style={{ width: `${(highPriCount/totalActive)*100}%` }}></div>
+                <div className="bg-yellow-400 transition-all duration-1000" style={{ width: `${(medPriCount/totalActive)*100}%` }}></div>
+                <div className="bg-emerald-500 transition-all duration-1000" style={{ width: `${(lowPriCount/totalActive)*100}%` }}></div>
+              </div>
+              <div className="flex justify-between text-[10px] mt-1.5 text-gray-500 font-bold">
+                <span className="text-red-600">High: {highPriCount}</span>
+                <span className="text-yellow-600">Med: {medPriCount}</span>
+                <span className="text-emerald-600">Low: {lowPriCount}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Push Notification — Level 2 only */}
         {selectedIncident && escalationLevel === 2 && (
           <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 w-11/12 max-w-md animate-bounce">
@@ -308,7 +437,7 @@ function App() {
             />
             <MapController incident={selectedIncident} />
 
-            {incidents.map((incident) => (
+            {filteredIncidents.map((incident) => (
               <Marker
                 key={incident.id}
                 position={[incident.latitude, incident.longitude]}

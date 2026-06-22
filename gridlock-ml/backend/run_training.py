@@ -425,10 +425,11 @@ def live_triage():
             input_df = input_df[expected]
             
             raw_score = float(model.predict(input_df)[0])
+            score_percentage = raw_score * 100  # Convert 0.52 to 52.0
             
             priority = 'Low'
-            if raw_score > 70: priority = 'High'
-            elif raw_score > 40: priority = 'Medium'
+            if score_percentage > 70: priority = 'High'
+            elif score_percentage > 40: priority = 'Medium'
             
             live_incidents.append({
                 "id": str(inc['properties']['id']),
@@ -437,7 +438,7 @@ def live_triage():
                 "longitude": coords[0],
                 "address": address,                          
                 "police_station": random.choice(stations),   
-                "mlScore": round(raw_score, 2),
+                "mlScore": round(score_percentage, 1),
                 "priority": priority,
                 "confidence": f"{random.randint(85, 98)}%"   # Dynamic confidence
             })
