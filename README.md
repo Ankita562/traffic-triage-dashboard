@@ -13,26 +13,32 @@ Bengaluru's traffic police face a jurisdictional bottleneck — when a high-prio
 
 ```mermaid
 graph TB
-    subgraph Round1 ["⚙️ Round 1 — ML Pipeline (Python)"]
-        A[Raw Traffic Sensor Data] --> B[Feature Engineering<br/>Geohash · Cyclic Time]
-        B --> C[HistGradientBoosting Predictor]
-        C --> D[Flask API Endpoint<br/>Port 5000]
+    subgraph External ["🌐 External Live Streams"]
+        T1[TomTom Traffic API] -->|Live REST Ingestion| D
+    end
+
+    subgraph Round1 ["⚙️ Round 1 & Inference — ML Pipeline (Python)"]
+        A[Raw Traffic Sensor Data] --> B[In-Memory Fitting<br/>HistGradientBoosting]
+        C[.env Secure Key Store] --> D
+        B -->|Model Instance| D[run_training.py Flask Engine<br/>Port 5000 /api/live-triage]
     end
 
     subgraph Round2 ["🖥️ Round 2 — Triage Dashboard (React)"]
-        D -->|Live JSON Fetch| E[Incident Feed<br/>React Sidebar]
+        D -->|30-Second Polling Fetch| E[Incident Feed<br/>Dynamic State Array]
         E --> F{Dispatcher<br/>Action}
         F -->|Confirm| G[✅ Dispatch Confirmed]
-        F -->|Primary Busy| H[Escalation Engine]
+        F -->|Primary Busy| H[Independent Escalation Engine]
+        F -->|Resolve| O[🟢 Lifecycle Status: Resolved]
         H --> I[Level 1: Hoysala Mobile Unit]
         I -->|Still Busy| J[Level 2: Central Control Room]
         J --> K[🔴 Geo-Fence Alert<br/>2km Radius Circle]
         J --> L[📢 Public Safety Push Notification]
+        G & H & O -->|Automated Logging Call| P[💾 Live Audit Log Terminal]
     end
 
     subgraph Map ["🗺️ Leaflet Map Layer"]
-        E --> M[Incident Pin Markers]
-        K --> N[Red Semi-Transparent Circle]
+        E --> M[Color-Coded Pins<br/>Red / Orange / Blue]
+        K --> N[Faded Operational Geofences]
     end
 ```
 
@@ -90,15 +96,12 @@ sequenceDiagram
 
 | Feature | Description | Status |
 | :--- | :--- | :---: |
-| 📋 **Live Incident Feed** | Sidebar cards with priority tags and addresses | ✅ |
-| 🗺️ **Interactive Map** | Leaflet maps with clickable incident pins & dynamic fly-to | ✅ |
-| 🤖 **Live ML API** | Real-time demand scoring via Python Flask backend (`HistGradientBoosting`) | ✅ |
-| ⚡ **Smart Triage Panel** | Per-incident recommendations from `TriageEngine.js` | ✅ |
-| 🔁 **3-Tier Escalation** | Traffic Police → Hoysala Unit → Central Control | ✅ |
-| 📊 **Escalation Stepper** | Visual progress tracker across the dispatch chain | ✅ |
-| ✅ **Confirm Dispatch** | Button confirms & marks card as "Sent" in sidebar | ✅ |
-| 🔴 **Geo-Fence Circle** | 2km red alert radius drawn on map at Level 2 | ✅ |
-| 📢 **Push Notification** | Bouncing civilian alert banner at Level 2 | ✅ |
+| 📋 **Live Incident Feed** | Dynamic card streams matching real-world Bengaluru coordinates and street targets | ✅ Live |
+| 🗺️ **Interactive Map** | Dynamic Leaflet engine with custom color-coded pins (Red: Accidents, Orange: Breakdowns, Blue: Jams) | ✅ Live |
+| 🤖 **Live ML API** | Real-time demand scoring via integrated Python server (`run_training.py`), eliminating model-version mismatches | ✅ Live |
+| ⚡ **Smart Triage Panel** | Rule-based responses combined with independent per-incident state memory across selection switches | ✅ Live |
+| 💾 **Live Audit Log** | Downstream terminal tracking timeline changes (Dispatches, Escalations, Resolutions) with microsecond precision | ✅ Live |
+| 🔐 **Secure Key Vault** | Total decoupling of sensitive access keys using standard local environment configurations (`.env`) | ✅ Live |
 
 ---
 
@@ -144,14 +147,13 @@ Gridlock/
 │   ├── postcss.config.js
 │   └── package.json
 │
-└── gridlock-ml/                # ⚙️ ROUND 1: ML & Flask Backend
+└── gridlock-ml/                # ⚙️ ROUND 1 & BACKEND SERVER
     ├── backend/
-    │   ├── api.py              # Flask REST API serving live predictions
-    │   ├── model.pkl           # Trained HistGradientBoosting model
-    │   ├── label_encoders.pkl  # Categorical feature encoders
-    │   └── *.csv / *.json      # Aggregation tables & imputation stats
-    ├── dataset/                # Raw traffic sensor data
-    └── source_code.ipynb       # Model training & feature engineering notebook
+    │   ├── run_training.py     # Integrated model architecture & live Flask endpoint
+    │   ├── .env                # [LOCAL ONLY] Secure TomTom API credential storage
+    │   └── *.csv / *.json      # Data pipelines and aggregation tables
+    ├── dataset/                # Raw traffic training data
+    └── source_code.ipynb       # Feature engineering sandbox
 ```
 
 ---
@@ -160,30 +162,38 @@ Gridlock/
 
 Because this project uses a live Machine Learning backend, you need to run two terminals simultaneously.
 
-**1. Clone the repo**
+### 1. Clone the repo
 ```bash
 git clone [https://github.com/Ankita562/traffic-triage-dashboard.git](https://github.com/Ankita562/traffic-triage-dashboard.git)
 cd traffic-triage-dashboard
 ```
 
-# 2. Start the ML Backend (Terminal 1)
+### 2. Configure Environment Variables
+Inside the `gridlock-ml/backend` directory, create a secure environment file to manage API access tokens without committing secrets to version control:
+
+1. Create a file named `.env`
+2. Add your TomTom developer credential inside it:
+```env
+TOMTOM_API_KEY=your_copied_api_key_here
+```
+
+### 3. Start the ML Backend (Terminal 1)
 ```bash
 cd gridlock-ml/backend
-pip install flask flask-cors joblib scikit-learn pandas numpy
-python api.py
-# The API server will start running on http://localhost:5000
+pip install flask flask-cors joblib scikit-learn pandas numpy python-dotenv requests
+python run_training.py
+# The pipeline will run structural model initialization in memory.
+# Once training completes, the server launches on http://localhost:5000
 ```
 
 
-# 3. Start the React Frontend (Terminal 2)
+### 4. Start the React Frontend (Terminal 2)
 ```bash
 cd traffic-triage-dashboard
 npm install
 npm start
-# The dashboard will open automatically at http://localhost:3000
+# The dashboard opens automatically at http://localhost:3000, pulling real-time events.
 ```
-
-Open [http://localhost:3000](http://localhost:3000) — no API keys needed, runs fully offline with mock data.
 
 ---
 
