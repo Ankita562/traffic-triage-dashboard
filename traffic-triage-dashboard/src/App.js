@@ -101,7 +101,7 @@ function App() {
   useEffect(() => {
     const fetchLiveFeed = async () => {
       try {
-        const response = await fetch('http://127.0.0.1:5000/api/live-triage');
+        const response = await fetch(`${process.env.REACT_APP_API_URL}/api/live-triage`);
         const liveData = await response.json();
         
         setIncidents(prevIncidents => {
